@@ -1,0 +1,64 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Helper functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    // User profile document
+    match /users/{uid} {
+      allow read, write: if isOwner(uid);
+      
+      // User's private trusted contacts collection
+      match /contacts/{contactId} {
+        allow read, write: if isOwner(uid);
+      }
+    }
+
+    // SOS events: User owns their SOS events. Guardians read only if listed in notifiedContactIds
+    match /sos_events/{eventId} {
+      allow create: if isAuthenticated() && request.resource.data.uid == request.auth.uid;
+      allow update, delete: if isAuthenticated() && resource.data.uid == request.auth.uid;
+      allow read: if isAuthenticated() && (
+        resource.data.uid == request.auth.uid ||
+        request.auth.uid in resource.data.notifiedContactIds
+      );
+    }
+
+    // Location shares: Guardians read only if active and listed in recipientContactIds
+    match /location_shares/{shareId} {
+      allow create: if isAuthenticated() && request.resource.data.uid == request.auth.uid;
+      allow update, delete: if isAuthenticated() && resource.data.uid == request.auth.uid;
+      allow read: if isAuthenticated() && (
+        resource.data.uid == request.auth.uid ||
+        (resource.data.active == true && request.auth.uid in resource.data.recipientContactIds)
+      );
+    }
+
+    // High frequency location pings: Owner write & read only
+    match /location_pings/{uid}/pings/{pingId} {
+      allow read, write: if isOwner(uid);
+    }
+
+    // Companion trips: Owner write; guardian read if in recipientContactIds
+    match /companion_trips/{tripId} {
+      allow create: if isAuthenticated() && request.resource.data.uid == request.auth.uid;
+      allow update, delete: if isAuthenticated() && resource.data.uid == request.auth.uid;
+      allow read: if isAuthenticated() && (
+        resource.data.uid == request.auth.uid ||
+        request.auth.uid in resource.data.recipientContactIds
+      );
+    }
+
+    // AI Check-in messages: Strictly private to user
+    match /checkin_messages/{uid}/messages/{messageId} {
+      allow read, write: if isOwner(uid);
+    }
+  }
+}
